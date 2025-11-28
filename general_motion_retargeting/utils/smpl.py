@@ -50,19 +50,14 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
 def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
     gvhmr_pred = torch.load(gvhmr_pred_file)
     smpl_params_global = gvhmr_pred['smpl_params_global']
-    # print(smpl_params_global['body_pose'].shape)
-    # print(smpl_params_global['betas'].shape)
-    # print(smpl_params_global['global_orient'].shape)
-    # print(smpl_params_global['transl'].shape)
     
-    betas = np.pad(smpl_params_global['betas'][0], (0,6))
-    
-    # correct rotations
-    # rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
-    # rotation_quat = R.from_matrix(rotation_matrix).as_quat(scalar_first=True)
-    
-    # smpl_params_global['body_pose'] = smpl_params_global['body_pose'] @ rotation_matrix
-    # smpl_params_global['global_orient'] = smpl_params_global['global_orient'] @ rotation_quat
+    # --- FIX 1: REMOVE PADDING ---
+    # GVHMR outputs SMPL betas (usually 10). SMPLX is compatible with these 10.
+    # Padding to 16 creates a dimension mismatch with the model's shape headers.
+    betas = smpl_params_global['betas'][0] 
+    # Ensure it's numpy if it's a tensor
+    if torch.is_tensor(betas):
+        betas = betas.numpy()
     
     smplx_data = {
         'pose_body': smpl_params_global['body_pose'].numpy(),
@@ -77,29 +72,98 @@ def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
         "smplx",
         gender="neutral",
         use_pca=False,
+        # num_betas=10 # Default is 10, which matches our un-padded betas
     )
     
     num_frames = smpl_params_global['body_pose'].shape[0]
+
+    # --- FIX 2: EXPAND BETAS & EXPLICIT EXPRESSION ---
+    # 1. Prepare betas as (1, 10)
+    betas_tensor = torch.tensor(smplx_data["betas"]).float().view(1, -1)
+    
+    # 2. Expand betas to (312, 10) to match num_frames
+    betas_expanded = betas_tensor.expand(num_frames, -1)
+
+    # 3. Explicitly create expression tensor (312, 10) to guarantee dimension match
+    # This prevents smplx from trying to guess dimensions and failing
+    expression_tensor = torch.zeros(num_frames, 10).float()
+
     smplx_output = body_model(
-        betas=torch.tensor(smplx_data["betas"]).float().view(1, -1), # (16,)
-        global_orient=torch.tensor(smplx_data["root_orient"]).float(), # (N, 3)
-        body_pose=torch.tensor(smplx_data["pose_body"]).float(), # (N, 63)
-        transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
+        betas=betas_expanded, 
+        global_orient=torch.tensor(smplx_data["root_orient"]).float(), 
+        body_pose=torch.tensor(smplx_data["pose_body"]).float(), 
+        transl=torch.tensor(smplx_data["trans"]).float(), 
         left_hand_pose=torch.zeros(num_frames, 45).float(),
         right_hand_pose=torch.zeros(num_frames, 45).float(),
         jaw_pose=torch.zeros(num_frames, 3).float(),
         leye_pose=torch.zeros(num_frames, 3).float(),
         reye_pose=torch.zeros(num_frames, 3).float(),
-        # expression=torch.zeros(num_frames, 10).float(),
+        expression=expression_tensor, # Explicitly pass the matching tensor
         return_full_pose=True,
     )
     
-    if len(smplx_data['betas'].shape)==1:
+    # Height calculation using the single beta array
+    if len(smplx_data['betas'].shape) == 1:
         human_height = 1.66 + 0.1 * smplx_data['betas'][0]
     else:
         human_height = 1.66 + 0.1 * smplx_data['betas'][0, 0]
     
     return smplx_data, body_model, smplx_output, human_height
+
+#* fixed because of beta dimension error
+# def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
+#     gvhmr_pred = torch.load(gvhmr_pred_file)
+#     smpl_params_global = gvhmr_pred['smpl_params_global']
+#     # print(smpl_params_global['body_pose'].shape)
+#     # print(smpl_params_global['betas'].shape)
+#     # print(smpl_params_global['global_orient'].shape)
+#     # print(smpl_params_global['transl'].shape)
+    
+#     betas = np.pad(smpl_params_global['betas'][0], (0,6))
+    
+#     # correct rotations
+#     # rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
+#     # rotation_quat = R.from_matrix(rotation_matrix).as_quat(scalar_first=True)
+    
+#     # smpl_params_global['body_pose'] = smpl_params_global['body_pose'] @ rotation_matrix
+#     # smpl_params_global['global_orient'] = smpl_params_global['global_orient'] @ rotation_quat
+    
+#     smplx_data = {
+#         'pose_body': smpl_params_global['body_pose'].numpy(),
+#         'betas': betas,
+#         'root_orient': smpl_params_global['global_orient'].numpy(),
+#         'trans': smpl_params_global['transl'].numpy(),
+#         "mocap_frame_rate": torch.tensor(30),
+#     }
+
+#     body_model = smplx.create(
+#         smplx_body_model_path,
+#         "smplx",
+#         gender="neutral",
+#         use_pca=False,
+#     )
+    
+#     num_frames = smpl_params_global['body_pose'].shape[0]
+#     smplx_output = body_model(
+#         betas=torch.tensor(smplx_data["betas"]).float().view(1, -1), # (16,)
+#         global_orient=torch.tensor(smplx_data["root_orient"]).float(), # (N, 3)
+#         body_pose=torch.tensor(smplx_data["pose_body"]).float(), # (N, 63)
+#         transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
+#         left_hand_pose=torch.zeros(num_frames, 45).float(),
+#         right_hand_pose=torch.zeros(num_frames, 45).float(),
+#         jaw_pose=torch.zeros(num_frames, 3).float(),
+#         leye_pose=torch.zeros(num_frames, 3).float(),
+#         reye_pose=torch.zeros(num_frames, 3).float(),
+#         # expression=torch.zeros(num_frames, 10).float(),
+#         return_full_pose=True,
+#     )
+    
+#     if len(smplx_data['betas'].shape)==1:
+#         human_height = 1.66 + 0.1 * smplx_data['betas'][0]
+#     else:
+#         human_height = 1.66 + 0.1 * smplx_data['betas'][0, 0]
+    
+#     return smplx_data, body_model, smplx_output, human_height
 
 
 def get_smplx_data(smplx_data, body_model, smplx_output, curr_frame):
