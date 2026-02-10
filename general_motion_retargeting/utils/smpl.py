@@ -51,6 +51,11 @@ def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
     gvhmr_pred = torch.load(gvhmr_pred_file)
     smpl_params_global = gvhmr_pred['smpl_params_global']
     
+    print(f"betas shape: {smpl_params_global['betas'].shape}")
+    print(f"body_pose shape: {smpl_params_global['body_pose'].shape}")
+    print(f"global_orient shape: {smpl_params_global['global_orient'].shape}")
+    print(f"transl shape: {smpl_params_global['transl'].shape}")
+
     # --- FIX 1: REMOVE PADDING ---
     # GVHMR outputs SMPL betas (usually 10). SMPLX is compatible with these 10.
     # Padding to 16 creates a dimension mismatch with the model's shape headers.
@@ -72,7 +77,7 @@ def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):
         "smplx",
         gender="neutral",
         use_pca=False,
-        # num_betas=10 # Default is 10, which matches our un-padded betas
+        num_betas=10 # Default is 10, which matches our un-padded betas
     )
     
     num_frames = smpl_params_global['body_pose'].shape[0]
