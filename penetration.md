@@ -24,6 +24,7 @@ implementation, how to use it, empirical results, and open problems.
    - [AMASS CMU batch via YAML](#52-amass-cmu-batch-via-yaml)
    - [Visualisation and comparison](#53-visualisation-and-comparison)
    - [Preparing soft-mode MJCF](#54-preparing-soft-mode-mjcf)
+   - [Generated data files](#55-generated-data-files)
 6. [Empirical Results](#6-empirical-results)
 7. [Pros and Cons of Each Mode](#7-pros-and-cons-of-each-mode)
 8. [Known Limitations and Open Problems](#8-known-limitations-and-open-problems)
@@ -242,37 +243,39 @@ Tasks-2 solve uses `limits2 = ik_limits + ik_limits2`.
 ### 5.1 Single-file retargeting
 
 ```bash
+AMASS=/path/to/AMASS   # root of AMASS dataset (parent of CMU/)
+
 # Vanilla (no constraint)
 python scripts/retarget_no_penetration.py \
-    --input data/locomotion_amass_cmu/35_14_stageii.npz \
+    --input $AMASS/CMU/35/35_14_stageii.npz \
     --input_format amass_cmu \
     --ground_mode none \
     --no_viz \
-    --output data/35_14_vanilla.pkl
+    --output data/locomotion_amass_cmu/35_14_vanilla.pkl
 
 # QP hard constraint (recommended for walk/run)
 python scripts/retarget_no_penetration.py \
-    --input data/locomotion_amass_cmu/35_14_stageii.npz \
+    --input $AMASS/CMU/35/35_14_stageii.npz \
     --input_format amass_cmu \
     --ground_mode qp \
     --no_viz \
-    --output data/35_14_qp.pkl
+    --output data/locomotion_amass_cmu/35_14_qp.pkl
 
 # Soft repulsive tasks (requires K1_serial_with_sites.xml — see 5.4)
 python scripts/retarget_no_penetration.py \
-    --input data/locomotion_amass_cmu/35_14_stageii.npz \
+    --input $AMASS/CMU/35/35_14_stageii.npz \
     --input_format amass_cmu \
     --ground_mode soft \
     --no_viz \
-    --output data/35_14_soft.pkl
+    --output data/locomotion_amass_cmu/35_14_soft.pkl
 
 # GVHMR input (e.g. kick motion)
 python scripts/retarget_no_penetration.py \
-    --input GVHMR/outputs/demo/freekick/hmr4d_results.pt \
+    --input data/kick_gvhmr/kick_soogon_2.pt \
     --input_format gvhmr \
     --ground_mode qp \
     --no_viz \
-    --output retargeted/freekick_qp.pkl
+    --output data/kick_gvhmr/kick_soogon_2_qp.pkl
 ```
 
 **Key flags:**
@@ -357,60 +360,102 @@ at each sole corner into the K1 MJCF. Soft mode uses this XML automatically.
 
 ---
 
+## 5.5 Generated data files
+
+PKL files are not tracked in git. The following files were generated for evaluation and are
+stored locally. Re-generate with the commands in §5.1–5.2.
+
+**`data/locomotion_amass_cmu/`** — AMASS CMU locomotion motions:
+
+| File | Source | Motion type | Frames | FPS |
+|------|--------|-------------|-------:|----:|
+| `35_14_vanilla.pkl` | CMU/35/35_14_stageii.npz | walk | 102 | 29.8 |
+| `35_14_qp.pkl` | CMU/35/35_14_stageii.npz | walk | 102 | 29.8 |
+| `35_14_soft.pkl` | CMU/35/35_14_stageii.npz | walk | 102 | 29.8 |
+| `02_01_vanilla.pkl` | CMU/02/02_01_stageii.npz | walk | 85 | 29.7 |
+| `02_01_qp.pkl` | CMU/02/02_01_stageii.npz | walk | 85 | 29.7 |
+| `02_01_soft.pkl` | CMU/02/02_01_stageii.npz | walk | 85 | 29.7 |
+| `07_01_vanilla.pkl` | CMU/07/07_01_stageii.npz | walk | 79 | 30.0 |
+| `07_01_qp.pkl` | CMU/07/07_01_stageii.npz | walk | 79 | 30.0 |
+| `07_01_soft.pkl` | CMU/07/07_01_stageii.npz | walk | 79 | 30.0 |
+| `02_03_vanilla.pkl` | CMU/02/02_03_stageii.npz | run/jog | 43 | 29.8 |
+| `02_03_qp.pkl` | CMU/02/02_03_stageii.npz | run/jog | 43 | 29.8 |
+| `02_03_soft.pkl` | CMU/02/02_03_stageii.npz | run/jog | 43 | 29.8 |
+| `09_01_vanilla.pkl` | CMU/09/09_01_stageii.npz | run | 37 | 30.0 |
+| `09_01_qp.pkl` | CMU/09/09_01_stageii.npz | run | 37 | 30.0 |
+| `09_01_soft.pkl` | CMU/09/09_01_stageii.npz | run | 37 | 30.0 |
+
+**`data/kick_gvhmr/`** — GVHMR kick motion (input `.pt` file is tracked):
+
+| File | Motion type | Frames | FPS |
+|------|-------------|-------:|----:|
+| `kick_soogon_2_vanilla.pkl` | kick | 134 | 30.0 |
+| `kick_soogon_2_qp.pkl` | kick | 134 | 30.0 |
+| `kick_soogon_2_soft.pkl` | kick | 134 | 30.0 |
+
+---
+
 ## 6. Empirical Results
 
-Tests run on 5 AMASS CMU motions from the locomotion list, Booster K1, 30 fps.
-Sole clearance = 3 mm, gain = 0.5, activation_distance = 20 mm.
+All results use Booster K1, 30 fps, clearance = 3 mm, gain = 0.5, activation_distance = 20 mm.
+Stats computed by `scripts/compare_penetration_stats.py`.
 
-### Walk motions
+Column definitions:
+- **pen/N**: frames with any sole corner below `ground_height + clearance`
+- **max_pen**: worst-case penetration depth (mm)
+- **max_up**: maximum frame-to-frame upward root-z jump (mm) — proxy for jitter
+- **mean_up**: mean upward jump across all positive jumps (mm)
+- **rz_range**: total root-z range over the motion (mm)
 
-| Motion | Mode | frames | pen/N | max_pen | max_up | rz_range |
-|--------|------|--------|-------|---------|--------|----------|
-| 35_14 (walk) | vanilla | 102 | 102/102 | 58.6 mm | 14.6 mm | 45.7 mm |
-| 35_14 (walk) | **qp** | 102 | **6/102** | **9.3 mm** | **10.5 mm** | 37.4 mm |
-| 35_14 (walk) | soft | 102 | 62/102 | 36.5 mm | 14.6 mm | 45.7 mm |
-| 02_01 (walk) | vanilla | 85 | 85/85 | 80.6 mm | 10.4 mm | 60.9 mm |
-| 02_01 (walk) | **qp** | 85 | **0/85** | **0.0 mm** | **7.5 mm** | 32.3 mm |
-| 07_01 (walk) | vanilla | 79 | 78/79 | 81.3 mm | 11.2 mm | 70.0 mm |
-| 07_01 (walk) | **qp** | 79 | **2/79** | **8.5 mm** | **9.6 mm** | 39.7 mm |
+### Walk motions (AMASS CMU)
 
-### Run motions
+| Motion | Mode | frames | pen/N | max_pen | max_up | mean_up | rz_range |
+|--------|------|-------:|-------|--------:|-------:|--------:|---------:|
+| CMU 35_14 | vanilla | 102 | 102/102 | 63.5 mm | 14.6 mm | 4.6 mm | 45.7 mm |
+| CMU 35_14 | **qp** | 102 | **6/102** | **9.3 mm** | **10.5 mm** | **3.6 mm** | 37.4 mm |
+| CMU 35_14 | soft | 102 | 62/102 | 36.5 mm | 14.6 mm | 4.6 mm | 45.7 mm |
+| CMU 02_01 | vanilla | 85 | 85/85 | 80.6 mm | 10.4 mm | 4.1 mm | 60.9 mm |
+| CMU 02_01 | **qp** | 85 | **0/85** | **0.0 mm** | **7.5 mm** | **2.5 mm** | 32.3 mm |
+| CMU 02_01 | soft | 85 | 44/85 | 53.6 mm | 12.0 mm | 4.1 mm | 60.9 mm |
+| CMU 07_01 | vanilla | 79 | 78/79 | 81.3 mm | 11.2 mm | 5.1 mm | 70.0 mm |
+| CMU 07_01 | **qp** | 79 | **2/79** | **8.5 mm** | **9.6 mm** | **3.6 mm** | 39.7 mm |
+| CMU 07_01 | soft | 79 | 45/79 | 54.3 mm | 14.5 mm | 5.1 mm | 70.0 mm |
 
-| Motion | Mode | frames | pen/N | max_pen | max_up | rz_range |
-|--------|------|--------|-------|---------|--------|----------|
-| 02_03 (run/jog) | vanilla | 43 | 41/43 | 77.2 mm | 21.5 mm | 79.0 mm |
-| 02_03 (run/jog) | **qp** | 43 | **0/43** | **0.0 mm** | 23.3 mm | 61.6 mm |
-| 09_01 (run) | vanilla | 37 | 32/37 | 52.3 mm | 13.3 mm | 45.4 mm |
-| 09_01 (run) | **qp** | 37 | **0/37** | **0.0 mm** | 23.8 mm | 42.0 mm |
+### Run motions (AMASS CMU)
+
+| Motion | Mode | frames | pen/N | max_pen | max_up | mean_up | rz_range |
+|--------|------|-------:|-------|--------:|-------:|--------:|---------:|
+| CMU 02_03 (jog) | vanilla | 43 | 41/43 | 77.2 mm | 21.5 mm | 8.7 mm | 79.0 mm |
+| CMU 02_03 (jog) | **qp** | 43 | **0/43** | **0.0 mm** | 23.3 mm | 9.2 mm | 61.6 mm |
+| CMU 02_03 (jog) | soft | 43 | 23/43 | 50.0 mm | 21.5 mm | 8.7 mm | 78.9 mm |
+| CMU 09_01 (run) | vanilla | 37 | 32/37 | 52.3 mm | 13.3 mm | 5.9 mm | 45.4 mm |
+| CMU 09_01 (run) | **qp** | 37 | **0/37** | **0.0 mm** | 23.8 mm | 7.2 mm | 42.0 mm |
+| CMU 09_01 (run) | soft | 37 | 18/37 | 25.6 mm | 11.8 mm | 4.5 mm | 39.1 mm |
 
 ### Kick motion (GVHMR)
 
-| Motion | Mode | pen/N | max_pen | max_up |
-|--------|------|-------|---------|--------|
-| kick_soogon_2 | vanilla | high | ~50 mm | — |
-| kick_soogon_2 | **qp** | very low | <5 mm | — |
-| kick_soogon_2 | soft | moderate | ~20 mm | — |
+| Motion | Mode | frames | pen/N | max_pen | max_up | mean_up | rz_range |
+|--------|------|-------:|-------|--------:|-------:|--------:|---------:|
+| kick_soogon_2 | vanilla | 134 | 134/134 | 48.7 mm | 7.8 mm | 1.0 mm | 45.9 mm |
+| kick_soogon_2 | **qp** | 134 | **0/134** | **0.0 mm** | **6.3 mm** | **0.8 mm** | 33.1 mm |
+| kick_soogon_2 | soft | 134 | 24/134 | 21.7 mm | 7.8 mm | 1.0 mm | 45.9 mm |
 
 ### Key observations
 
-1. **QP eliminates penetration for all run motions** (0/43, 0/37) and reduces walk
-   penetration by 94–100%.
-2. **QP reduces root jitter for walk motions** (max_up drops 14.6→10.5, 10.4→7.5,
-   11.2→9.6 mm) — a beneficial side effect of constraining foot-ground contact.
-3. **QP slightly increases root jitter for run motions** (13.3→23.8 mm for 09_01).
-   This is a fundamental tradeoff (see §7).
-4. **Soft mode performs poorly** — 62% penetration for the walk test. The soft repulsive
-   tasks are outcompeted by the high-weight foot-tracking tasks.
-
-Comparison videos in `videos/`:
-- `35_14_vanilla_vs_qp_final.mp4` — walk, QP vs vanilla
-- `35_14_vanilla_vs_soft.mp4` — walk, soft vs vanilla
-- `02_01_vanilla_vs_qp.mp4` — walk, QP vs vanilla (perfect result)
-- `07_01_vanilla_vs_qp.mp4` — walk, QP vs vanilla
-- `02_03_vanilla_vs_qp.mp4` — run/jog, QP vs vanilla
-- `09_01_vanilla_vs_qp.mp4` — run, QP vs vanilla (jitter visible)
-- `kick_soogon_2_vanilla_vs_qp.mp4` — kick, QP vs vanilla
-- `kick_soogon_2_vanilla_vs_soft.mp4` — kick, soft vs vanilla
+1. **QP eliminates penetration completely for run and kick motions** (0/43, 0/37, 0/134)
+   and reduces walk penetration by 94–100%.
+2. **QP reduces root jitter for walk and kick motions** — max_up drops from 14.6→10.5,
+   10.4→7.5, 11.2→9.6 mm (walk) and 7.8→6.3 mm (kick).
+3. **QP increases root jitter for run motions** (13.3→23.8 mm for 09_01, 21.5→23.3 mm
+   for 02_03). This is a fundamental tradeoff — the constraint prevents natural heel-strike
+   compression and causes root overshoot at landing (see §8.2).
+4. **Soft mode performs poorly across all motion types** — 44–62% of walk frames still
+   penetrate, 53–60% of run frames, 18% of kick frames. The repulsive tasks are
+   outcompeted by the high-weight foot-tracking tasks and are not recommended for
+   production data generation.
+5. **Soft mode is surprisingly competitive on run motions** relative to QP on jitter
+   (09_01: soft max_up = 11.8 mm vs QP = 23.8 mm), but at the cost of 18/37 frames
+   still penetrating — an unacceptable tradeoff for training data.
 
 ---
 
