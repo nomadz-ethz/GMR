@@ -98,8 +98,12 @@ class GeneralMotionRetargeting:
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
         if use_velocity_limit:
             VELOCITY_LIMITS = {k: 3*np.pi for k in self.robot_motor_names.keys()}
-            self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS)) 
-            
+            self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS))
+
+        # Extra limits applied only to the tasks-2 solve (position+rotation).
+        # Add RootZLimit here to prevent root snapping during locomotion.
+        self.ik_limits2 = []
+
         self.setup_retarget_configuration()
         
         self.ground_offset = 0.0
@@ -179,7 +183,7 @@ class GeneralMotionRetargeting:
             curr_error = self.error1()
             dt = self.configuration.model.opt.timestep
             vel1 = mink.solve_ik(
-                self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
+                self.configuration, self.tasks1, dt, self.solver, self.damping, limits=self.ik_limits
             )
             self.configuration.integrate_inplace(vel1, dt)
             next_error = self.error1()
@@ -188,30 +192,29 @@ class GeneralMotionRetargeting:
                 curr_error = next_error
                 dt = self.configuration.model.opt.timestep
                 vel1 = mink.solve_ik(
-                    self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
+                    self.configuration, self.tasks1, dt, self.solver, self.damping, limits=self.ik_limits
                 )
                 self.configuration.integrate_inplace(vel1, dt)
                 next_error = self.error1()
                 num_iter += 1
 
         if self.use_ik_match_table2:
+            limits2 = self.ik_limits + self.ik_limits2
             curr_error = self.error2()
             dt = self.configuration.model.opt.timestep
             vel2 = mink.solve_ik(
-                self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
+                self.configuration, self.tasks2, dt, self.solver, self.damping, limits=limits2
             )
             self.configuration.integrate_inplace(vel2, dt)
             next_error = self.error2()
             num_iter = 0
             while curr_error - next_error > 0.001 and num_iter < self.max_iter:
                 curr_error = next_error
-                # Solve the IK problem with the second task
                 dt = self.configuration.model.opt.timestep
                 vel2 = mink.solve_ik(
-                    self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
+                    self.configuration, self.tasks2, dt, self.solver, self.damping, limits=limits2
                 )
                 self.configuration.integrate_inplace(vel2, dt)
-                
                 next_error = self.error2()
                 num_iter += 1
                 
