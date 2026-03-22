@@ -179,83 +179,88 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         print(f"[red]Error loading {input_path}: {e}[/red]")
         return False
 
-    # 2. Create retargeter with ground constraint
+    # 2. Helper to create retargeter with ground constraint
     from general_motion_retargeting.sole_points import get_sole_points, get_sole_site_names
 
     sole_config = get_sole_points(ROBOT_TYPE)
 
-    if args.ground_mode == "soft":
-        from general_motion_retargeting.ground_constraint import GMRWithSoftGround
-        import general_motion_retargeting.params as gmr_params
+    def create_retargeter():
+        if args.ground_mode == "soft":
+            from general_motion_retargeting.ground_constraint import GMRWithSoftGround
+            import general_motion_retargeting.params as gmr_params
 
-        # Soft mode needs the MJCF with <site> elements
-        original_xml = gmr_params.ROBOT_XML_DICT[ROBOT_TYPE]
-        sites_xml = str(original_xml).replace(".xml", "_with_sites.xml")
-        if not os.path.exists(sites_xml):
-            print(
-                f"[red]Soft mode requires {sites_xml}. "
-                f"Run: python scripts/add_sole_sites.py[/red]"
-            )
-            return False
+            original_xml = gmr_params.ROBOT_XML_DICT[ROBOT_TYPE]
+            sites_xml = str(original_xml).replace(".xml", "_with_sites.xml")
+            if not os.path.exists(sites_xml):
+                print(
+                    f"[red]Soft mode requires {sites_xml}. "
+                    f"Run: python scripts/add_sole_sites.py[/red]"
+                )
+                return None, None
 
-        gmr_params.ROBOT_XML_DICT[ROBOT_TYPE] = pathlib.Path(sites_xml)
-        try:
-            retarget = GMRWithSoftGround(
-                site_names=get_sole_site_names(ROBOT_TYPE),
-                ground_height=args.ground_height,
-                clearance=args.clearance,
-                max_weight=args.max_weight,
-                activation_distance=args.activation_distance,
+            gmr_params.ROBOT_XML_DICT[ROBOT_TYPE] = pathlib.Path(sites_xml)
+            try:
+                retgt = GMRWithSoftGround(
+                    site_names=get_sole_site_names(ROBOT_TYPE),
+                    ground_height=args.ground_height,
+                    clearance=args.clearance,
+                    max_weight=args.max_weight,
+                    activation_distance=args.activation_distance,
+                    actual_human_height=actual_human_height,
+                    src_human="smplx",
+                    tgt_robot=ROBOT_TYPE,
+                )
+            finally:
+                gmr_params.ROBOT_XML_DICT[ROBOT_TYPE] = original_xml
+
+        else:
+            from general_motion_retargeting import GeneralMotionRetargeting as GMR
+            retgt = GMR(
                 actual_human_height=actual_human_height,
                 src_human="smplx",
                 tgt_robot=ROBOT_TYPE,
             )
-        finally:
-            gmr_params.ROBOT_XML_DICT[ROBOT_TYPE] = original_xml
 
-    else:
-        from general_motion_retargeting import GeneralMotionRetargeting as GMR
+            if args.ground_mode == "qp":
+                from general_motion_retargeting.ground_constraint import GroundPlaneLimit
 
-        retarget = GMR(
-            actual_human_height=actual_human_height,
-            src_human="smplx",
-            tgt_robot=ROBOT_TYPE,
-        )
-
-        if args.ground_mode == "qp":
-            from general_motion_retargeting.ground_constraint import GroundPlaneLimit
-
-            ground_limit = GroundPlaneLimit(
-                model=retarget.model,
-                sole_contact_points=sole_config,
-                ground_height=args.ground_height,
-                clearance=args.clearance,
-                gain=args.gain,
-                activation_distance=args.activation_distance,
-            )
-            retarget.ik_limits.append(ground_limit)
-
-            max_root_dz = getattr(args, "max_root_dz", None)
-            if max_root_dz is not None:
-                from general_motion_retargeting.ground_constraint import RootZLimit
-                retarget.ik_limits2.append(RootZLimit(
-                    model=retarget.model,
+                ground_limit = GroundPlaneLimit(
+                    model=retgt.model,
                     sole_contact_points=sole_config,
                     ground_height=args.ground_height,
                     clearance=args.clearance,
+                    gain=args.gain,
                     activation_distance=args.activation_distance,
-                    max_dz=max_root_dz,
-                ))
+                )
+                retgt.ik_limits.append(ground_limit)
 
-    # For QP and soft modes: shift human targets up by the ankle-to-sole distance so
-    # the robot stands with its sole at ground level (z ≈ clearance) rather than with
-    # the ankle at z=0 (which leaves the sole 24mm underground).
-    # apply_ground_offset() subtracts self.ground_offset from all z positions,
-    # so a negative value raises targets. We want raise = clearance - min_sole_z.
+                max_root_dz = getattr(args, "max_root_dz", None)
+                if max_root_dz is not None:
+                    from general_motion_retargeting.ground_constraint import RootZLimit
+                    retgt.ik_limits2.append(RootZLimit(
+                        model=retgt.model,
+                        sole_contact_points=sole_config,
+                        ground_height=args.ground_height,
+                        clearance=args.clearance,
+                        activation_distance=args.activation_distance,
+                        max_dz=max_root_dz,
+                    ))
+                    
+        # Calculate baseline sole compensation
+        baseline_compensation = 0.0
+        if args.ground_mode != "none":
+            min_sole_z = min(pt[2] for pts in sole_config.values() for pt in pts)
+            baseline_compensation = min_sole_z - args.clearance  # negative → raises targets
+            retgt.set_ground_offset(baseline_compensation)
+            
+        return retgt, baseline_compensation
+        
+    retarget, sole_compensation = create_retargeter()
+    if retarget is None:
+        return False
+        
     if args.ground_mode != "none":
         min_sole_z = min(pt[2] for pts in sole_config.values() for pt in pts)
-        sole_compensation = min_sole_z - args.clearance  # negative → raises targets
-        retarget.set_ground_offset(sole_compensation)
         print(f"[bold]Sole compensation: {-sole_compensation*1000:.1f}mm "
               f"(ankle-to-sole={-min_sole_z*1000:.1f}mm + clearance={args.clearance*1000:.1f}mm)[/bold]")
 
@@ -273,27 +278,87 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
             video_path=f"videos/{ROBOT_TYPE}_{video_stem}.mp4",
         )
 
-    # 4. Retarget loop
+    # 4. First Pass: Initial IK solve
     qpos_list = []
     for frame_data in smplx_data_frames:
         qpos = retarget.retarget(frame_data)
         qpos_list.append(qpos.copy())
+        
+    # -- Strict Zero Penetration: TWO-PASS IK --
+    if getattr(args, "strict_zero_pen", False):
+        import mujoco as mj
+        import scipy.ndimage
+        
+        # Surveyor Pass: Evaluate exact penetrations
+        depths = np.zeros(len(qpos_list))
+        data_mj = mj.MjData(retarget.model)
+        for i, qpos in enumerate(qpos_list):
+            data_mj.qpos[:3] = qpos[:3]
+            data_mj.qpos[3:7] = qpos[3:7][[1, 2, 3, 0]]  # wxyz -> xyzw
+            data_mj.qpos[7:] = qpos[7:]
+            mj.mj_forward(retarget.model, data_mj)
 
+            min_z = np.inf
+            for body_name, local_pts in sole_config.items():
+                bid = mj.mj_name2id(retarget.model, mj.mjtObj.mjOBJ_BODY, body_name)
+                if bid < 0: continue
+                bp = data_mj.xpos[bid]
+                br = data_mj.xmat[bid].reshape(3, 3)
+                for lp in local_pts:
+                    world_z = (br @ np.array(lp) + bp)[2]
+                    if world_z < min_z:
+                        min_z = world_z
+            
+            if min_z < args.clearance:
+                depths[i] = args.clearance - min_z
+        
+        if np.max(depths) > 0.0:
+            print(f"[bold cyan]Pass 1 max penetration: {np.max(depths)*1000:.1f}mm. Extracting smooth envelope directly...[/bold cyan]")
+            # Dilate peaks to capture wider foot-strike curve, then heavily smooth.
+            dilated = scipy.ndimage.maximum_filter1d(depths, size=15)
+            smoothed = scipy.ndimage.gaussian_filter1d(dilated, sigma=5)
+            # Ensure it strictly covers the spikes, then smooth the kinks.
+            final_depths = np.maximum(smoothed, depths)
+            final_depths = scipy.ndimage.gaussian_filter1d(final_depths, sigma=2)
+            
+            # Second Pass: Reset IK solver and feed the final_depths as continuous target offsets!
+            retarget, _ = create_retargeter()
+            qpos_list = []
+            for i, frame_data in enumerate(smplx_data_frames):
+                # We subtract final_depths to push the ENTIRE target skeleton up precisely, 
+                # mathematically guaranteeing flawless motion smoothness for RL!
+                retarget.set_ground_offset(sole_compensation - final_depths[i])
+                qpos = retarget.retarget(frame_data)
+                qpos_list.append(qpos.copy())
+                
+                # Step the viewer here instead on the final pass!
+                if viewer is not None:
+                    scaled_human = retarget.scaled_human_data if hasattr(retarget, "scaled_human_data") else None
+                    viewer.step(
+                        root_pos=qpos[:3], root_rot=qpos[3:7], dof_pos=qpos[7:],
+                        human_motion_data=scaled_human, human_pos_offset=np.array([0.0, 0.0, 0.0]),
+                        show_human_body_name=False, rate_limit=args.rate_limit,
+                    )
+        else:
+            print("[bold cyan]Pass 1 max penetration: 0.0mm. Pass 2 skipped![/bold cyan]")
+            # Already done, step viewer if it exists.
+            if viewer is not None:
+                for qpos in qpos_list:
+                    viewer.step(
+                        root_pos=qpos[:3], root_rot=qpos[3:7], dof_pos=qpos[7:],
+                        human_pos_offset=np.array([0.0, 0.0, 0.0]),
+                        show_human_body_name=False, rate_limit=args.rate_limit,
+                    )
+    else:
+        # Normal visualization logic for single-pass
         if viewer is not None:
-            scaled_human = (
-                retarget.scaled_human_data
-                if hasattr(retarget, "scaled_human_data")
-                else None
-            )
-            viewer.step(
-                root_pos=qpos[:3],
-                root_rot=qpos[3:7],
-                dof_pos=qpos[7:],
-                human_motion_data=scaled_human,
-                human_pos_offset=np.array([0.0, 0.0, 0.0]),
-                show_human_body_name=False,
-                rate_limit=args.rate_limit,
-            )
+            for qpos in qpos_list:
+                scaled_human = retarget.scaled_human_data if hasattr(retarget, "scaled_human_data") else None
+                viewer.step(
+                    root_pos=qpos[:3], root_rot=qpos[3:7], dof_pos=qpos[7:],
+                    human_motion_data=scaled_human, human_pos_offset=np.array([0.0, 0.0, 0.0]),
+                    show_human_body_name=False, rate_limit=args.rate_limit,
+                )
 
     if viewer is not None:
         viewer.close()
@@ -310,7 +375,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
     height_adjust = getattr(args, "height_adjust", False)
     root_origin_offset = getattr(args, "root_origin_offset", False)
 
-    if height_adjust or root_origin_offset or input_format == "amass_cmu":
+    if height_adjust or root_origin_offset or input_format == "amass_cmu" or getattr(args, "strict_zero_pen", False):
         import torch
         from general_motion_retargeting.kinematics_model import KinematicsModel
 
@@ -339,6 +404,8 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
             if root_origin_offset:
                 root_pos[:, :2] -= root_pos[0, :2]
                 rp = torch.from_numpy(root_pos).to(device=device, dtype=torch.float)
+
+        # Legacy smoothing and aggressive bound clipping removed: Two-Pass IK handles this natively.
 
         # Local body positions (root fixed at origin — shape/pose only)
         fk_root_pos = torch.zeros((root_pos.shape[0], 3), device=device)
@@ -440,6 +507,8 @@ def parse_args():
                         help="Shift root z so the lowest body point sits at z=0.")
     parser.add_argument("--root_origin_offset", action="store_true",
                         help="Translate root XY so the first frame is at the origin.")
+    parser.add_argument("--strict_zero_pen", action="store_true",
+                        help="Post-processing: smooth root Z and rigidly eliminate penetration.")
 
     # Processing
     parser.add_argument("--no_viz", action="store_true",

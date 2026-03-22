@@ -159,6 +159,7 @@ class GeneralMotionRetargeting:
         human_data = self.apply_ground_offset(human_data)
         if offset_to_ground:
             human_data = self.offset_human_data_to_ground(human_data)
+            
         self.scaled_human_data = human_data
 
         if self.use_ik_match_table1:

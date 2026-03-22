@@ -113,8 +113,10 @@ class GroundPlaneLimit(Limit):
                 # gain=1.0 → full correction per step; gain<1 → partial (CBF-style).
                 # Do NOT divide by dt here — the QP variable is already displacement.
                 margin = z - self.ground_height - self.clearance
+                # gain=1.0 → full correction per step; gain<1 → partial (CBF-style).
+                dynamic_gain = min(1.0, self.gain + 2.0 * abs(margin)) if margin < 0 else self.gain
                 G_rows.append(-J_z)
-                h_vals.append(self.gain * margin)
+                h_vals.append(dynamic_gain * margin)
 
         if not G_rows:
             return Constraint()
