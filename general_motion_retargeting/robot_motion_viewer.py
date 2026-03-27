@@ -79,6 +79,7 @@ class RobotMotionViewer:
             )      
 
         self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+        self.viewer.opt.label = mj.mjtLabel.mjLABEL_GEOM
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
