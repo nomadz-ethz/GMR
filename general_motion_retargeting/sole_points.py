@@ -28,15 +28,30 @@ SOLE_CONTACT_POINTS = {
             [-0.066, -0.035, -0.024],
         ],
     },
-    # To add another robot, e.g.:
-    # "unitree_g1": {
-    #     "left_toe_link": [[...], ...],
-    #     "right_toe_link": [[...], ...],
-    # },
+    # For T1: each foot has two collision capsules (size="0.02 0.0915",
+    # axis along local x via quat), centers at (0.01, ±0.035, -0.01).
+    # Sole z = -0.01 - 0.02 = -0.03.
+    # x range: 0.01 ± 0.0915 → [-0.0815, 0.1015]
+    # y outer edges: ±(0.035 + 0.02) = ±0.055
+    "booster_t1": {
+        "left_foot_link": [
+            [0.1015, 0.055, -0.03],   # fl
+            [0.1015, -0.055, -0.03],  # fr
+            [-0.0815, 0.055, -0.03],  # rl
+            [-0.0815, -0.055, -0.03], # rr
+        ],
+        "right_foot_link": [
+            [0.1015, 0.055, -0.03],
+            [0.1015, -0.055, -0.03],
+            [-0.0815, 0.055, -0.03],
+            [-0.0815, -0.055, -0.03],
+        ],
+    },
 }
 
 FOOT_LINK_NAMES = {
     "booster_k1": ["left_foot_link", "right_foot_link"],
+    "booster_t1": ["left_foot_link", "right_foot_link"],
 }
 
 _CORNER_NAMES = ["fl", "fr", "rl", "rr"]

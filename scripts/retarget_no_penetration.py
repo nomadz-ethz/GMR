@@ -7,7 +7,7 @@ Supports:
   - Single file, batch directory, or YAML batch mode
   - Three ground modes: none (vanilla), qp (hard constraint), soft (repulsive tasks)
 
-Robot is hardcoded to Booster K1.
+Target robot is selectable via --robot (default: booster_k1).
 
 Usage examples:
     # Single GVHMR file, QP constraint
@@ -29,7 +29,6 @@ Usage examples:
     # AMASS CMU: batch via YAML locomotion list
     python scripts/retarget_no_penetration.py \\
         --yaml /path/to/amass_cmu_locomotion_list.yaml \\
-        --amass_root /data/AMASS \\
         --input_format amass_cmu --ground_mode qp \\
         --height_adjust --root_origin_offset --output retargeted_cmu/
 
@@ -49,7 +48,6 @@ from rich import print
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-ROBOT_TYPE = "booster_k1"
 SMPLX_FOLDER = pathlib.Path(__file__).parent.parent / "assets" / "body_models"
 
 
@@ -170,6 +168,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
 
     Returns True on success, False on failure.
     """
+    ROBOT_TYPE = args.robot
     # 1. Load frames
     try:
         smplx_data_frames, aligned_fps, actual_human_height = load_motion_frames(
@@ -264,18 +263,22 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         print(f"[bold]Sole compensation: {-sole_compensation*1000:.1f}mm "
               f"(ankle-to-sole={-min_sole_z*1000:.1f}mm + clearance={args.clearance*1000:.1f}mm)[/bold]")
 
-    # 3. Optional viewer (single-file mode only)
+    # 3. Optional viewer (created if visualizing OR recording video)
     viewer = None
-    if not args.no_viz:
+    if (not args.no_viz) or args.record_video:
         from general_motion_retargeting import RobotMotionViewer
 
-        video_stem = pathlib.Path(input_path).stem
+        # Place video alongside the output pkl, mirroring its stem.
+        out_path_obj = pathlib.Path(output_path)
+        video_dir = out_path_obj.parent / "videos"
+        video_path = str(video_dir / f"{ROBOT_TYPE}_{out_path_obj.stem}.mp4")
+
         viewer = RobotMotionViewer(
             robot_type=ROBOT_TYPE,
             motion_fps=aligned_fps,
             transparent_robot=0,
             record_video=args.record_video,
-            video_path=f"videos/{ROBOT_TYPE}_{video_stem}.mp4",
+            video_path=video_path if args.record_video else None,
         )
 
     # 4. First Pass: Initial IK solve
@@ -443,7 +446,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Retarget human motion to Booster K1 with ground penetration prevention."
+        description="Retarget human motion to a humanoid robot with ground penetration prevention."
     )
 
     # Input: one of --input (file/dir) or --yaml (AMASS CMU locomotion list)
@@ -459,7 +462,8 @@ def parse_args():
         "--yaml", type=str,
         help=(
             "Path to a YAML locomotion list (e.g. amass_cmu_locomotion_list.yaml). "
-            "Requires --amass_root. Only valid with --input_format amass_cmu."
+            "Paths in the YAML are resolved relative to the YAML file's directory. "
+            "Only valid with --input_format amass_cmu."
         ),
     )
 
@@ -472,10 +476,6 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--amass_root", type=str, default=None,
-        help="Root directory of the AMASS dataset (parent of 'CMU/'). Required with --yaml.",
-    )
-    parser.add_argument(
         "--output", type=str, default=None,
         help=(
             "Output path. Single file: path to .pkl. "
@@ -484,6 +484,10 @@ def parse_args():
     )
 
     # Ground constraint
+    parser.add_argument(
+        "--robot", choices=["booster_k1", "booster_t1"], default="booster_k1",
+        help="Target robot model.",
+    )
     parser.add_argument(
         "--ground_mode", choices=["none", "qp", "soft"], default="none",
         help="'none'=vanilla GMR, 'qp'=hard QP inequality, 'soft'=soft repulsive tasks",
@@ -514,7 +518,8 @@ def parse_args():
     parser.add_argument("--no_viz", action="store_true",
                         help="Disable MuJoCo viewer (default for batch)")
     parser.add_argument("--record_video", action="store_true",
-                        help="Record MP4 video (single file mode only)")
+                        help="Record MP4 video. Works in single-file, directory, and YAML batch modes. "
+                             "Videos are saved to <output_dir>/videos/<robot>_<stem>.mp4.")
     parser.add_argument("--rate_limit", action="store_true",
                         help="Rate-limit visualization to motion FPS")
     parser.add_argument("--loop", action="store_true",
@@ -529,37 +534,89 @@ def parse_args():
 # Main entry point
 # ---------------------------------------------------------------------------
 
+class _Tee:
+    """Duplicate writes to multiple streams (e.g. real stdout + a log file)."""
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            try:
+                s.write(data)
+            except Exception:
+                pass
+    def flush(self):
+        for s in self.streams:
+            try:
+                s.flush()
+            except Exception:
+                pass
+    def isatty(self):
+        return False
+
+
 def _run_batch(files, output_dir, input_format, args):
     """Process a list of (src_path, stem) pairs and save to output_dir."""
-    args.no_viz = True  # never show viewer in batch
+    # Suppress interactive viewer in batch, but allow video recording (offscreen render).
+    args.no_viz = True
+    args.rate_limit = False
 
-    print(
-        f"[bold]Found {len(files)} files. "
-        f"Ground mode: {args.ground_mode}. "
-        f"Output: {output_dir}[/bold]"
-    )
+    # Tee stdout to <output_dir>/<top-level-stem-dir>/output.txt so the run's
+    # terminal log lives next to the pkl/video outputs.
+    log_file = None
+    saved_stdout = None
+    if files:
+        first_parts = pathlib.Path(files[0][1]).parts
+        log_subdir = first_parts[0] if len(first_parts) > 1 else ""
+        log_dir = pathlib.Path(output_dir) / log_subdir
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "output.txt"
+        log_file = open(log_path, "w", buffering=1)
+        saved_stdout = sys.stdout
+        sys.stdout = _Tee(saved_stdout, log_file)
+        # Reset rich's cached console so it picks up the new sys.stdout.
+        try:
+            import rich
+            rich.reconfigure()
+        except Exception:
+            pass
 
     try:
-        from tqdm import tqdm
-        file_iter = tqdm(files, desc="Retargeting")
-    except ImportError:
-        file_iter = files
-
-    success = 0
-    for src_path, rel_stem in file_iter:
-        out_path = os.path.join(output_dir, rel_stem + ".pkl")
-
-        if os.path.exists(out_path) and not args.override:
-            continue
+        print(
+            f"[bold]Found {len(files)} files. "
+            f"Ground mode: {args.ground_mode}. "
+            f"Output: {output_dir}[/bold]"
+        )
 
         try:
-            ok = retarget_and_save(src_path, out_path, input_format, args)
-            if ok:
-                success += 1
-        except Exception as e:
-            print(f"[red]Error processing {src_path}: {e}[/red]")
+            from tqdm import tqdm
+            file_iter = tqdm(files, desc="Retargeting")
+        except ImportError:
+            file_iter = files
 
-    print(f"[bold green]Done! {success}/{len(files)} files -> {output_dir}[/bold green]")
+        success = 0
+        for src_path, rel_stem in file_iter:
+            out_path = os.path.join(output_dir, rel_stem + ".pkl")
+
+            if os.path.exists(out_path) and not args.override:
+                continue
+
+            try:
+                ok = retarget_and_save(src_path, out_path, input_format, args)
+                if ok:
+                    success += 1
+            except Exception as e:
+                print(f"[red]Error processing {src_path}: {e}[/red]")
+
+        print(f"[bold green]Done! {success}/{len(files)} files -> {output_dir}[/bold green]")
+    finally:
+        if log_file is not None:
+            sys.stdout = saved_stdout
+            log_file.close()
+            try:
+                import rich
+                rich.reconfigure()
+            except Exception:
+                pass
 
 
 def main():
@@ -570,21 +627,31 @@ def main():
         if args.input_format != "amass_cmu":
             print("[red]--yaml requires --input_format amass_cmu[/red]")
             sys.exit(1)
-        if not args.amass_root:
-            print("[red]--yaml requires --amass_root (root directory of the AMASS dataset)[/red]")
-            sys.exit(1)
-
         yaml_path = os.path.abspath(args.yaml)
-        amass_root = pathlib.Path(os.path.abspath(args.amass_root))
+        yaml_dir = pathlib.Path(yaml_path).parent
         entries = load_yaml_paths(yaml_path)
 
         files = []
         for rel_path, _ in entries:
-            full = str(amass_root / rel_path)
-            stem = str(pathlib.Path(rel_path).parent / _amass_stem(rel_path))
+            full = str((yaml_dir / rel_path).resolve())
+            # Stem: prefer the path under an "AMASS/" component for clean output layout.
+            parts = pathlib.Path(rel_path).parts
+            if "AMASS" in parts:
+                idx = parts.index("AMASS")
+                tail = pathlib.Path(*parts[idx + 1:])
+            else:
+                tail = pathlib.Path(pathlib.Path(rel_path).name)
+            stem = str(tail.parent / _amass_stem(str(tail)))
+            # Prefix the top-level dataset directory with the robot type so
+            # different robots' outputs don't collide (e.g. booster_t1_CMU/...).
+            stem_parts = pathlib.Path(stem).parts
+            if len(stem_parts) > 1:
+                stem = str(pathlib.Path(f"{args.robot}_{stem_parts[0]}", *stem_parts[1:]))
+            else:
+                stem = f"{args.robot}_{stem}"
             files.append((full, stem))
 
-        output_dir = args.output if args.output else str(amass_root / "retargeted")
+        output_dir = args.output if args.output else str(yaml_dir / "retargeted")
         _run_batch(files, output_dir, args.input_format, args)
         return
 
