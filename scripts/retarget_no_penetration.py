@@ -419,6 +419,34 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         link_body_list = km.body_names
         torch.cuda.empty_cache()
 
+    # Per-foot ground-contact detection from SMPLX toe kinematics.
+    # Runs on the unified smplx_data_frames (unaffected by ground_mode / strict_zero_pen),
+    # so labels stay stable across retargeting variants.
+    foot_ground_contact_flags = None
+    if not getattr(args, "no_foot_contact", False) and len(smplx_data_frames) >= 2:
+        first_frame = smplx_data_frames[0]
+        if "left_foot" in first_frame and "right_foot" in first_frame:
+            l_toe = np.array([f["left_foot"][0]  for f in smplx_data_frames], dtype=np.float32)
+            r_toe = np.array([f["right_foot"][0] for f in smplx_data_frames], dtype=np.float32)
+            dt = 1.0 / float(aligned_fps)
+            l_vel = np.linalg.norm(np.gradient(l_toe, dt, axis=0), axis=1)
+            r_vel = np.linalg.norm(np.gradient(r_toe, dt, axis=0), axis=1)
+            # Per-motion floor reference: raw SMPLX z is not guaranteed to hit 0 at the
+            # ground (AMASS sequences and GVHMR's post-rotation both shift it), so compare
+            # toe height against the lowest observed toe z in the clip.
+            floor_z = float(min(l_toe[:, 2].min(), r_toe[:, 2].min()))
+            l_stance = ((l_toe[:, 2] - floor_z) < args.foot_contact_z_thresh) & (l_vel < args.foot_contact_vel_thresh)
+            r_stance = ((r_toe[:, 2] - floor_z) < args.foot_contact_z_thresh) & (r_vel < args.foot_contact_vel_thresh)
+            foot_ground_contact_flags = np.stack([l_stance, r_stance], axis=1).astype(bool)
+            n = len(smplx_data_frames)
+            print(
+                f"[Foot contact] L={int(l_stance.sum())}/{n}, R={int(r_stance.sum())}/{n} "
+                f"(floor_z={floor_z:.3f} m, z<{args.foot_contact_z_thresh:.3f} m, "
+                f"v<{args.foot_contact_vel_thresh:.3f} m/s)"
+            )
+        else:
+            print("[yellow][Foot contact] left_foot/right_foot missing from SMPLX frames; skipping.[/yellow]")
+
     motion_data = {
         "fps": aligned_fps,
         "root_pos": root_pos,
@@ -428,6 +456,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         "link_body_list": link_body_list,
         "ground_mode": args.ground_mode,
         "ground_clearance": args.clearance,
+        "foot_ground_contact_flags": foot_ground_contact_flags,
     }
 
     out_dir = os.path.dirname(output_path)
@@ -513,6 +542,16 @@ def parse_args():
                         help="Translate root XY so the first frame is at the origin.")
     parser.add_argument("--strict_zero_pen", action="store_true",
                         help="Post-processing: smooth root Z and rigidly eliminate penetration.")
+
+    # Per-foot ground contact detection (from SMPLX toe kinematics)
+    parser.add_argument("--foot_contact_z_thresh", type=float, default=0.08,
+                        help="Max SMPLX toe height above the per-motion floor to count as "
+                             "ground contact, in meters. Default 0.08.")
+    parser.add_argument("--foot_contact_vel_thresh", type=float, default=0.5,
+                        help="Max SMPLX toe 3D speed to count as ground contact, in m/s. "
+                             "Default 0.5.")
+    parser.add_argument("--no_foot_contact", action="store_true",
+                        help="Skip writing foot_ground_contact_flags to the output pkl.")
 
     # Processing
     parser.add_argument("--no_viz", action="store_true",
