@@ -447,16 +447,28 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         else:
             print("[yellow][Foot contact] left_foot/right_foot missing from SMPLX frames; skipping.[/yellow]")
 
+    foot_contact_params = (
+        None if getattr(args, "no_foot_contact", False) or foot_ground_contact_flags is None
+        else {"z_thresh": float(args.foot_contact_z_thresh),
+              "v_thresh": float(args.foot_contact_vel_thresh)}
+    )
+
     motion_data = {
         "fps": aligned_fps,
+        "robot": ROBOT_TYPE,
+        "input_format": input_format,
+        "source_file": os.path.abspath(input_path),
+        "ground_mode": args.ground_mode,
+        "strict_zero_pen": bool(getattr(args, "strict_zero_pen", False)),
+        "ground_clearance": args.clearance,
+        "actual_human_height": float(actual_human_height),
         "root_pos": root_pos,
         "root_rot": root_rot,
         "dof_pos": dof_pos,
         "local_body_pos": local_body_pos,
         "link_body_list": link_body_list,
-        "ground_mode": args.ground_mode,
-        "ground_clearance": args.clearance,
         "foot_ground_contact_flags": foot_ground_contact_flags,
+        "foot_contact_params": foot_contact_params,
     }
 
     out_dir = os.path.dirname(output_path)
