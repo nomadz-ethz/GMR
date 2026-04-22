@@ -17,12 +17,10 @@ import mujoco as mj
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-ROBOT_TYPE = "booster_k1"
 
-
-def load_sole_config():
+def load_sole_config(robot_type: str):
     from general_motion_retargeting.sole_points import get_sole_points
-    return get_sole_points(ROBOT_TYPE)
+    return get_sole_points(robot_type)
 
 
 def compute_stats(pkl_path, model, sole_config, ground_height=0.0, clearance=0.003):
@@ -92,6 +90,10 @@ def main():
     parser.add_argument("--glob", type=str, default=None, help="Glob pattern for pkl files")
     parser.add_argument("--ground_height", type=float, default=0.0)
     parser.add_argument("--clearance", type=float, default=0.003)
+    parser.add_argument("--robot", choices=["booster_k1", "booster_t1"],
+                        default="booster_k1",
+                        help="Target robot whose sole geometry defines penetration. "
+                             "Should match the pkl's 'robot' key when present.")
     args = parser.parse_args()
 
     files = list(args.files)
@@ -102,9 +104,9 @@ def main():
         sys.exit(1)
 
     from general_motion_retargeting import ROBOT_XML_DICT
-    xml_path = str(ROBOT_XML_DICT[ROBOT_TYPE])
+    xml_path = str(ROBOT_XML_DICT[args.robot])
     model = mj.MjModel.from_xml_path(xml_path)
-    sole_config = load_sole_config()
+    sole_config = load_sole_config(args.robot)
 
     header = ("Label              "
               "  frames  pen/N  max_pen  max_up  mean_up  rz_range")

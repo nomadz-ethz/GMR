@@ -233,18 +233,6 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
                 )
                 retgt.ik_limits.append(ground_limit)
 
-                max_root_dz = getattr(args, "max_root_dz", None)
-                if max_root_dz is not None:
-                    from general_motion_retargeting.ground_constraint import RootZLimit
-                    retgt.ik_limits2.append(RootZLimit(
-                        model=retgt.model,
-                        sole_contact_points=sole_config,
-                        ground_height=args.ground_height,
-                        clearance=args.clearance,
-                        activation_distance=args.activation_distance,
-                        max_dz=max_root_dz,
-                    ))
-                    
         # Calculate baseline sole compensation
         baseline_compensation = 0.0
         if args.ground_mode != "none":
@@ -265,7 +253,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
 
     # 3. Optional viewer (created if visualizing OR recording video)
     viewer = None
-    if (not args.no_viz) or args.record_video:
+    if (not args.headless) or args.record_video:
         from general_motion_retargeting import RobotMotionViewer
 
         # Place video alongside the output pkl, mirroring its stem.
@@ -537,11 +525,8 @@ def parse_args():
     parser.add_argument("--clearance", type=float, default=0.003,
                         help="Minimum clearance above ground in meters (default: 3mm)")
     parser.add_argument("--gain", type=float, default=0.5,
-                        help="QP mode: CBF gain (0<gain<=1). 0.5 = half-correction per IK step.")
-    parser.add_argument("--max_root_dz", type=float, default=None,
-                        help="QP mode: cap upward root-z displacement per IK step (metres). "
-                             "Reduces heel-strike jitter in locomotion. Typical: 0.003. "
-                             "Default: None (disabled).")
+                        help="QP mode: CBF base gain (0<gain<=1). Boosted dynamically when "
+                             "penetrating. 0.5 = half-correction per IK step.")
     parser.add_argument("--max_weight", type=float, default=500.0,
                         help="Soft mode: maximum task weight")
     parser.add_argument("--activation_distance", type=float, default=0.02,
@@ -553,7 +538,9 @@ def parse_args():
     parser.add_argument("--root_origin_offset", action="store_true",
                         help="Translate root XY so the first frame is at the origin.")
     parser.add_argument("--strict_zero_pen", action="store_true",
-                        help="Post-processing: smooth root Z and rigidly eliminate penetration.")
+                        help="Two-pass IK: surveys penetration, builds a smooth target-shift "
+                             "envelope, re-runs IK so soles stay flush at the ground with no "
+                             "foot-slide. ~2x runtime. See docs/pipeline.md §2.5.")
 
     # Per-foot ground contact detection (from SMPLX toe kinematics)
     parser.add_argument("--foot_contact_z_thresh", type=float, default=0.08,
@@ -565,18 +552,16 @@ def parse_args():
     parser.add_argument("--no_foot_contact", action="store_true",
                         help="Skip writing foot_ground_contact_flags to the output pkl.")
 
-    # Processing
-    parser.add_argument("--no_viz", action="store_true",
-                        help="Disable MuJoCo viewer (default for batch)")
+    # Processing. Renamed from --no_viz / --override; legacy spellings kept as aliases.
+    parser.add_argument("--headless", "--no_viz", dest="headless", action="store_true",
+                        help="Disable MuJoCo viewer (auto-set in batch mode).")
     parser.add_argument("--record_video", action="store_true",
                         help="Record MP4 video. Works in single-file, directory, and YAML batch modes. "
                              "Videos are saved to <output_dir>/videos/<robot>_<stem>.mp4.")
     parser.add_argument("--rate_limit", action="store_true",
                         help="Rate-limit visualization to motion FPS")
-    parser.add_argument("--loop", action="store_true",
-                        help="Loop motion in viewer (single file mode)")
-    parser.add_argument("--override", action="store_true",
-                        help="Overwrite existing output files in batch mode")
+    parser.add_argument("--overwrite", "--override", dest="overwrite", action="store_true",
+                        help="Overwrite existing output files in batch mode.")
 
     return parser.parse_args()
 
@@ -608,7 +593,7 @@ class _Tee:
 def _run_batch(files, output_dir, input_format, args):
     """Process a list of (src_path, stem) pairs and save to output_dir."""
     # Suppress interactive viewer in batch, but allow video recording (offscreen render).
-    args.no_viz = True
+    args.headless = True
     args.rate_limit = False
 
     # Tee stdout to <output_dir>/<top-level-stem-dir>/output.txt so the run's
@@ -648,7 +633,7 @@ def _run_batch(files, output_dir, input_format, args):
         for src_path, rel_stem in file_iter:
             out_path = os.path.join(output_dir, rel_stem + ".pkl")
 
-            if os.path.exists(out_path) and not args.override:
+            if os.path.exists(out_path) and not args.overwrite:
                 continue
 
             try:

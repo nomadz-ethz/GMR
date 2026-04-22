@@ -10,7 +10,7 @@ Usage:
         --video_path videos/comparison.mp4 \\
         --show_sole_points
 
-Robot is hardcoded to Booster K1.
+Pass --robot to choose between booster_k1 and booster_t1.
 """
 
 import argparse
@@ -27,8 +27,6 @@ from general_motion_retargeting import (
     ROBOT_XML_DICT, ROBOT_BASE_DICT, VIEWER_CAM_DISTANCE_DICT, load_robot_motion
 )
 from general_motion_retargeting.sole_points import get_sole_points
-
-ROBOT_TYPE = "booster_k1"
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +105,10 @@ def parse_args():
                         help="Draw colored sole point debug spheres.")
     parser.add_argument("--ground_height", type=float, default=0.0,
                         help="z-coordinate of the ground plane (default: 0.0).")
+    parser.add_argument("--robot", choices=["booster_k1", "booster_t1"],
+                        default="booster_k1",
+                        help="Target robot model. Should match the pkl's 'robot' "
+                             "key when present.")
     return parser.parse_args()
 
 
@@ -128,7 +130,8 @@ def main():
         f"Rendering {num_frames} frames.[/bold]"
     )
 
-    xml_path = str(ROBOT_XML_DICT[ROBOT_TYPE])
+    robot_type = args.robot
+    xml_path = str(ROBOT_XML_DICT[robot_type])
 
     # Two separate model/data pairs (same MJCF, independent physics states)
     model_a = mj.MjModel.from_xml_path(xml_path)
@@ -141,15 +144,15 @@ def main():
     renderer_b = mj.Renderer(model_b, height=args.video_height, width=args.video_width)
 
     # Sole config for debug markers
-    sole_config = get_sole_points(ROBOT_TYPE) if args.show_sole_points else {}
+    sole_config = get_sole_points(robot_type) if args.show_sole_points else {}
 
     # Output video (combined width = 2 * per-panel width)
     vid_dir = pathlib.Path(args.video_path).parent
     vid_dir.mkdir(parents=True, exist_ok=True)
     mp4_writer = imageio.get_writer(args.video_path, fps=int(fps))
 
-    base_name = ROBOT_BASE_DICT[ROBOT_TYPE]
-    cam_distance = VIEWER_CAM_DISTANCE_DICT[ROBOT_TYPE]
+    base_name = ROBOT_BASE_DICT[robot_type]
+    cam_distance = VIEWER_CAM_DISTANCE_DICT[robot_type]
 
     try:
         from tqdm import tqdm
