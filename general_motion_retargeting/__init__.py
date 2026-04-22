@@ -6,4 +6,5 @@ from .data_loader import load_robot_motion
 from .kinematics_model import KinematicsModel
 from .sole_points import get_sole_points, get_foot_link_names, get_sole_site_names
 from .ground_constraint import GroundPlaneLimit, SoftGroundConstraint, GMRWithSoftGround
+from . import retargeting  # pipeline-internal helpers; see docs/pipeline.md
 
