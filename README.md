@@ -25,6 +25,13 @@
 - Carefully tuned for good performance of RL tracking policies.
 - Support multiple humanoid robots and multiple human motion data formats (See our table below).
 
+#### Ground-safe retargeting (Booster K1 / T1, this fork)
+
+This fork adds a unified pipeline that retargets SMPL-X (AMASS) and GVHMR
+motions to Booster K1 / T1 with strictly zero foot-ground penetration and
+per-foot contact labels. Entry point: `scripts/retarget_no_penetration.py`.
+Design and CLI reference: [`docs/pipeline.md`](docs/pipeline.md).
+
 > [!NOTE]
 > If you want this repo to support a new robot or a new human motion data format, send the robot files (`.xml`, `.urdf`, and meshes) / human motion data to <a href="mailto:lastyanjieze@gmail.com">Yanjie Ze</a> or create an issue, we will support it as soon as possible. And please make sure the robot files you sent can be open-sourced in this repo.
 

@@ -1,4 +1,5 @@
 #!/bin/bash
+# Run from the repo root: ./shell/run_batch_comparison.sh
 set -e
 
 echo "1. Generating baseline QP retargeting for CMU 35 dataset..."

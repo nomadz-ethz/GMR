@@ -83,7 +83,11 @@ Add `--record_video --video_path <output.mp4>` to any visualization command to r
 
 - `scripts/`: Entry point scripts for different retargeting workflows
 - `general_motion_retargeting/`: Core library code
+  - `retargeting/`: Pipeline-internal helpers (builder, two-pass IK, foot-contact detection, FK post, batch runner) extracted from `scripts/retarget_no_penetration.py` so the CLI script stays thin.
 - `assets/`: Robot models (MuJoCo XML) and body models (SMPL-X)
+- `docs/`: Design docs. `docs/pipeline.md` is the reference for the ground-safe retargeting pipeline (K1/T1 + zero-penetration two-pass IK + foot-contact labels). `docs/penetration.md` and `docs/CHANGELOG_ZERO_PENETRATION.md` are archived predecessors.
+- `shell/`: Convenience batch scripts (run from repo root).
+- `scripts/legacy/`: Pre-pipeline single-format converters (`smplx_to_robot.py`, `gvhmr_to_robot*.py`). Kept for reference; superseded by `scripts/retarget_no_penetration.py`.
 - `general_motion_retargeting/ik_configs/`: JSON configuration files for human-to-robot body mappings:
   - SMPL-X configs: `smplx_to_{g1,t1,k1,toddy,n1,pm01,kuavo,hi,r1pro}.json`
   - BVH configs: `bvh_to_{g1,t1,toddy,n1,pm01}.json`
