@@ -1,6 +1,6 @@
 # Zero Foot Penetration & Motion Smoothing Update (archived)
 
-> **Archived.** Folded into [`docs/pipeline.md`](pipeline.md) §2.3 (dynamic
+> **Archived.** Folded into [`docs/pipeline.md`](../pipeline.md) §2.3 (dynamic
 > CBF gain) and §2.5 (Two-Pass IK). Kept here for git-blame continuity.
 
 This document summarizes the changes made to the General Motion Retargeting (GMR) pipeline to perfectly eliminate foot penetration for the Booster K1 robot while maintaining biologically smooth joint kinematics.

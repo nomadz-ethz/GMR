@@ -797,9 +797,9 @@ to the current HEAD of `feature/zero-penetr-and-smoothed`.
 | `penetration.md` | modified (`c7faa94`) | Predecessor of this document; superseded. |
 | `CHANGELOG_ZERO_PENETRATION.md` | added (`1c99b8f`) | Predecessor of this document's §2.5; superseded. |
 
-After the cleanup commits (A – F) referenced in the project's
-`CLEANUP_PLAN.md`, `penetration.md` and `CHANGELOG_ZERO_PENETRATION.md` are
-absorbed into this file under `docs/`, `run_batch_comparison.sh` moves under
-`shell/`, the legacy single-format scripts move under `scripts/legacy/`, and
-the script-level helpers extracted to `general_motion_retargeting/retargeting/`
-are listed in this section.
+After the K1/T1 deployable cleanup, the predecessor docs `penetration.md` and
+`CHANGELOG_ZERO_PENETRATION.md` live under `docs/archive/`,
+`run_batch_comparison.sh` lives under `shell/`, and the script-level helpers
+extracted to `general_motion_retargeting/retargeting/` are listed in this
+section. Per-format converters (`smplx_to_robot.py`, `gvhmr_to_robot*.py`,
+etc.) were removed entirely; git history preserves them.

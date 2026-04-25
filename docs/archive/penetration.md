@@ -1,7 +1,7 @@
 # Ground Penetration Prevention for GMR (archived)
 
 > **Archived.** This document predates the unified pipeline doc. The current
-> design reference is [`docs/pipeline.md`](pipeline.md), which covers
+> design reference is [`docs/pipeline.md`](../pipeline.md), which covers
 > everything below plus the two-pass IK, dynamic CBF gain, T1 robot, and
 > foot-ground contact flags. This file is kept for git-blame continuity.
 
