@@ -1,10 +1,9 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repository (a Booster K1 / T1
+motion retargeting fork of [`YanjieZe/GMR`](https://github.com/YanjieZe/GMR)).
 
-## Installation and Setup
-
-This is a Python package for motion retargeting to humanoid robots. Install in development mode:
+## Installation
 
 ```bash
 conda create -n gmr python=3.10 -y
@@ -13,106 +12,111 @@ pip install -e .
 conda install -c conda-forge libstdcxx-ng -y
 ```
 
-## Code Architecture
+The pipeline reads SMPL-X body models from `assets/body_models/smplx/`.
 
-### Core Components
+## What this fork is
 
-- **`GeneralMotionRetargeting`** (`general_motion_retargeting/motion_retarget.py`): Main class for motion retargeting using inverse kinematics (IK) solver built on mink/mujoco
-- **`KinematicsModel`** (`general_motion_retargeting/kinematics_model.py`): Handles robot kinematics calculations
-- **`RobotMotionViewer`** (`general_motion_retargeting/robot_motion_viewer.py`): MuJoCo-based visualization for robot motions
-- **Configuration System** (`general_motion_retargeting/params.py`): Simplified robot definitions and IK config mappings - cleaned to focus on core supported robots
+A narrowed fork of upstream GMR. Only **Booster K1** and **Booster T1** are
+supported. The single retargeting entry point is
+`scripts/retarget_no_penetration.py`, which handles:
 
-### Data Flow
+- `--input_format smplx`     — generic SMPL-X .npz / .pkl (AMASS, OMOMO, …)
+- `--input_format amass_cmu` — AMASS CMU `_stageii.npz` with stem cleaning
+- `--input_format gvhmr`     — GVHMR `hmr4d_results.pt`
+- `--input_format bvh_lafan1` — LAFAN1 BVH (**experimental**)
 
-1. **Human Motion Input**: SMPL-X (AMASS/OMOMO) or BVH (LAFAN1) format
-2. **Motion Format**: Each frame = dict of (human_body_name, 3D translation + rotation)
-3. **Robot Output**: Tuple of (base_translation, base_rotation, joint_positions)
-4. **IK Configs**: JSON files in `general_motion_retargeting/ik_configs/` define human-to-robot body mappings
+The pipeline writes a self-describing pkl containing root + dof + (optional)
+local body positions + foot-contact flags. Schema: `docs/pipeline.md` §5.7.
 
-### Supported Robots
+For the broader picture of fork additions vs upstream see
+`docs/overview.md`. For the pipeline reference: `docs/pipeline.md`.
 
-Core robot models in `assets/` directory:
-- Unitree G1 (`unitree_g1`) - 29 DOF humanoid
-- Booster T1 (`booster_t1`) - Full-body humanoid 
-- Booster K1 (`booster_k1`) - 22 DOF humanoid
-- Stanford ToddlerBot (`stanford_toddy`) - Research humanoid
-- Fourier N1 (`fourier_n1`) - Commercial humanoid
-- ENGINEAI PM01 (`engineai_pm01`) - Industrial humanoid
-- Kuavo S45 (`kuavo_s45`) - 28 DOF humanoid
-- HighTorque Hi (`hightorque_hi`) - 25 DOF humanoid
-- Galaxea R1 Pro (`galaxea_r1pro`) - 24 DOF wheeled humanoid
+## Code architecture
 
-Additional models retained in ROBOT_BASE_DICT for compatibility:
-- `unitree_g1_with_hands` (43 DOF with dexterous hands)
-- `dex31_left_hand`, `dex31_right_hand` (hand components)
+### Library: `general_motion_retargeting/`
 
-## Common Commands
+- `motion_retarget.py` — `GeneralMotionRetargeting` IK class on mink/mujoco
+- `kinematics_model.py` — robot kinematics helper
+- `params.py` — registry dicts (K1 + T1 only)
+- `robot_motion_viewer.py` — MuJoCo viewer
+- `ground_constraint.py` — `GroundPlaneLimit` (hard QP), `SoftGroundConstraint`
+  / `GMRWithSoftGround` (soft repulsive)
+- `sole_points.py` — per-robot sole contact points
+- `data_loader.py`, `rot_utils.py`, `torch_utils.py` — utilities
+- `retargeting/` — modular pipeline helpers extracted from the CLI:
+  `builder.build_retargeter`, `strict_zero_pen.measure_*` /
+  `smooth_penetration_envelope`, `foot_contact.detect_smplx_foot_contact`,
+  `fk_post.apply_fk_post`, `batch_runner.run_batch` / `Tee` /
+  `discover_input_files` / `load_yaml_paths` / `amass_stem`
+- `utils/smpl.py`, `utils/lafan1.py`, `utils/lafan_vendor/` — source loaders
+- `ik_configs/` — `smplx_to_{k1,t1}.json`, `bvh_lafan1_to_{k1,t1}.json`
 
-### Single Motion Retargeting
+### Entry-point scripts: `scripts/`
+
+- `retarget_no_penetration.py` — **the** pipeline CLI (smplx / gvhmr /
+  amass_cmu / bvh_lafan1 × k1 / t1 × ground_mode × strict_zero_pen)
+- `vis_robot_motion.py` — replay one pkl in the MuJoCo viewer
+- `vis_robot_motion_dataset.py` — browse a directory of pkls (`[`/`]`/`x`)
+- `vis_robot_motion_debug.py` — viewer with sole markers + penetration colour
+- `vis_robot_motion_with_contact.py` — render mp4 with foot-contact overlay
+- `vis_compare_motions.py` — side-by-side comparison
+- `analyze_locomotion_dataset.py` — per-pkl penetration / jitter stats →
+  Markdown report (optional YAML category mapping)
+- `compare_penetration_stats.py` — diagnostic CLI
+- `add_sole_sites.py` — one-time MJCF prep injecting sole `<site>`s
+
+### Shell wrappers: `shell/`
+
+- `run_file.sh`, `run_dir.sh`, `run_yaml.sh` — thin wrappers around
+  `retarget_no_penetration.py` for a single file / directory / YAML index
+- `analyse.sh` — wraps `analyze_locomotion_dataset.py`
+- `run_batch_comparison.sh` — qp vs strict_zero_pen comparison runner
+
+### Docs: `docs/`
+
+- `overview.md` — what this fork adds vs upstream GMR
+- `pipeline.md` — canonical pipeline reference
+- `foot_contact.md` — foot-contact PKL schema and consumer examples
+- `bvh.md` — BVH (LAFAN1) integration, experimental
+- `ik_config.md` — IK config field reference
+- `test_motions.md` — tricky-motion checklist
+- `archive/` — `UPSTREAM_README.md`, `penetration.md`,
+  `CHANGELOG_ZERO_PENETRATION.md` (historical)
+
+## Common commands
+
 ```bash
-# SMPL-X to robot
-python scripts/smplx_to_robot.py --smplx_file <path> --robot <robot_name> --save_path <output.pkl>
+# Single AMASS CMU file, K1, two-pass smoothing, headless
+python scripts/retarget_no_penetration.py \
+    --input /data/AMASS/CMU/35/35_01_stageii.npz --input_format amass_cmu \
+    --robot booster_k1 --ground_mode qp --strict_zero_pen \
+    --headless --output retargeted/35_01.pkl
 
-# BVH to robot  
-python scripts/bvh_to_robot.py --bvh_file <path> --robot <robot_name> --save_path <output.pkl>
+# GVHMR with viewer
+python scripts/retarget_no_penetration.py \
+    --input GVHMR/outputs/freekick/hmr4d_results.pt --input_format gvhmr \
+    --robot booster_k1 --ground_mode qp --strict_zero_pen --rate_limit
+
+# Replay
+python scripts/vis_robot_motion.py \
+    --robot booster_k1 --robot_motion_path retargeted/35_01.pkl
 ```
 
-### Batch Processing
-```bash
-# Process datasets
-python scripts/smplx_to_robot_dataset.py
-python scripts/bvh_to_robot_dataset.py
-```
+## Key technical details
 
-### Visualization
-```bash
-# Visualize saved robot motion
-python scripts/vis_robot_motion.py --robot <robot_name> --robot_motion_path <path.pkl>
-```
+- **IK Solver**: `mink` with `daqp`, damping 5e-1.
+- **Ground constraint**: hard QP via `GroundPlaneLimit`; soft via
+  `GMRWithSoftGround`. Defaults tuned for K1 / T1.
+- **Strict zero-penetration**: two-pass IK with smoothed envelope; ~2× the
+  single-pass runtime.
+- **Foot-ground contact**: detected on raw SMPL-X toe kinematics, so labels
+  are stable across `--ground_mode` and robot choices.
+- **Body model dependencies**: SMPL-X in `assets/body_models/smplx/`.
 
-Add `--record_video --video_path <output.mp4>` to any visualization command to record video.
+## Regression check
 
-## Key Technical Details
-
-- **IK Solver**: Uses mink library with configurable solver (default: "daqp") and damping (default: 5e-1)
-- **Human Height Scaling**: Automatic scaling based on `actual_human_height` parameter vs config assumptions
-- **Real-time Performance**: Optimized for 60-70 FPS on high-end CPUs for teleoperation use cases
-- **Body Model Dependencies**: Requires SMPL-X body models in `assets/body_models/smplx/`
-
-## File Organization
-
-- `scripts/`: Entry point scripts for different retargeting workflows
-- `general_motion_retargeting/`: Core library code
-  - `retargeting/`: Pipeline-internal helpers (builder, two-pass IK, foot-contact detection, FK post, batch runner) extracted from `scripts/retarget_no_penetration.py` so the CLI script stays thin.
-- `assets/`: Robot models (MuJoCo XML) and body models (SMPL-X)
-- `docs/`: Design docs. `docs/pipeline.md` is the reference for the ground-safe retargeting pipeline (K1/T1 + zero-penetration two-pass IK + foot-contact labels). `docs/penetration.md` and `docs/CHANGELOG_ZERO_PENETRATION.md` are archived predecessors.
-- `shell/`: Convenience batch scripts (run from repo root).
-- `scripts/legacy/`: Pre-pipeline single-format converters (`smplx_to_robot.py`, `gvhmr_to_robot*.py`). Kept for reference; superseded by `scripts/retarget_no_penetration.py`.
-- `general_motion_retargeting/ik_configs/`: JSON configuration files for human-to-robot body mappings:
-  - SMPL-X configs: `smplx_to_{g1,t1,k1,toddy,n1,pm01,kuavo,hi,r1pro}.json`
-  - BVH configs: `bvh_to_{g1,t1,toddy,n1,pm01}.json`
-  - FBX configs: `fbx_to_g1.json`
-
-## Project Status & Features
-
-**Current State**: Production-ready motion retargeting system with extensive robot support
-
-**Key Capabilities**:
-- **Multi-format Input**: SMPL-X (AMASS/OMOMO), BVH (LAFAN1), FBX (OptiTrack)
-- **Real-time Performance**: 60-70 FPS on high-end hardware for teleoperation
-- **9 Robot Models**: From research platforms to commercial humanoids
-- **Robust IK**: Mink-based solver with automatic human height scaling
-- **Visualization**: MuJoCo-based viewer with video recording capabilities
-- **Batch Processing**: Dataset-level retargeting workflows
-
-**Use Cases**:
-- Real-time whole-body teleoperation (see [TWIST](https://github.com/YanjieZe/TWIST))
-- RL policy training data generation
-- Motion capture to robot deployment
-- Cross-platform humanoid motion transfer
-
-**Recent Additions** (2025):
-- Booster K1 support (9th robot)
-- Dexterous hand integration (G1 + Dex31)
-- Wheeled humanoid support (Galaxea R1 Pro)
-- Enhanced OptiTrack real-time streaming
+`tests/check_baseline.py` re-runs canonical motions through the CLI and
+asserts numeric arrays (and contact flags) are unchanged vs pinned baseline
+pkls in `tests/baseline/` (gitignored). Use it after touching anything in
+`general_motion_retargeting/retargeting/`, `params.py`, or
+`scripts/retarget_no_penetration.py`.
