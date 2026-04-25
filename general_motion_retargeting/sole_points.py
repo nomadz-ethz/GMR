@@ -1,6 +1,6 @@
 """
 Sole contact point definitions for ground-plane constraints.
-Currently only Booster K1 is defined. Add other robots by extending the dicts.
+Currently only Booster K1 and T1 are defined. Add other robots by extending the dicts.
 
 Points are in the foot link's LOCAL frame.
 z-values are negative (below the ankle/link origin = the sole surface).

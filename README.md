@@ -36,6 +36,8 @@ The pipeline depends on SMPL-X body models in `assets/body_models/smplx/`
 
 ## Quickstart
 
+Recommended: `--ground_mode qp --strict_zero_pen` for "feet on ground", `--ground_mode none` for "body on ground". (e.g. first option for a push-up would result in floating robot)
+
 ```bash
 # AMASS CMU walk on K1, two-pass smoothing, headless
 python scripts/retarget_no_penetration.py \
@@ -69,6 +71,27 @@ python scripts/vis_robot_motion_with_contact.py \
 
 Batch and YAML-driven runs are wrapped in `shell/run_file.sh`,
 `shell/run_dir.sh`, and `shell/run_yaml.sh`.
+
+## Output PKL schema
+
+| Key | Type | Notes |
+|---|---|---|
+| `fps` | `float` | Aligned target fps. |
+| `robot` | `str` | NEW — `booster_k1` or `booster_t1`. |
+| `input_format` | `str` | NEW — `smplx`, `gvhmr`, or `amass_cmu`. |
+| `source_file` | `str` | NEW — absolute path of the source motion. |
+| `ground_mode` | `str` | `none`, `qp`, or `soft`. |
+| `strict_zero_pen` | `bool` | NEW — True if two-pass IK was applied. |
+| `ground_clearance` | `float` | Clearance threshold used (m). |
+| `actual_human_height` | `float` | NEW — measured source human height (m). |
+| `root_pos` | `(N, 3) float32` | World root position per frame. |
+| `root_rot` | `(N, 4) float32` | World root rotation per frame, **xyzw order**. |
+| `dof_pos` | `(N, J) float32` | Joint positions per frame. |
+| `local_body_pos` | `(N, B, 3) float32 \| None` | Body positions with root pinned to origin. |
+| `link_body_list` | `list[str] \| None` | Body names matching `local_body_pos`. |
+| `foot_ground_contact_flags` | `(N, 2) bool \| None` | Left / right contact (§3). See `docs/foot_contact.md` for the consumer-facing schema and PyTorch usage examples. |
+| `foot_contact_meta` | `dict \| None` | Self-describing dict: `{"source", "joints", "columns", "z_thresh", "vel_thresh", "floor_z"}`. |
+
 
 ## Documentation
 

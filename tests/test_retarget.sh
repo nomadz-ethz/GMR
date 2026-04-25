@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#* ADD TEST MOTIONS TO test_motions/amass, test_motions/gvhmr, or test_motions/lafan1, then run this script to retarget and review them.
 # Run scripts/retarget_no_penetration.py on the tracked test motions in
 # tests/test_motions/ and produce videos for visual review.
 #
