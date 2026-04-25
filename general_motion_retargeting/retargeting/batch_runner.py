@@ -69,6 +69,12 @@ def discover_input_files(input_dir: str, input_format: str):
                         stem = os.path.splitext(rel)[0]
                     results.append((full_path, stem))
 
+    elif input_format == "bvh_lafan1":
+        for bvh_path in sorted(base.rglob("*.bvh")):
+            rel = os.path.relpath(str(bvh_path), input_dir)
+            stem = os.path.splitext(rel)[0]
+            results.append((str(bvh_path), stem))
+
     return results
 
 

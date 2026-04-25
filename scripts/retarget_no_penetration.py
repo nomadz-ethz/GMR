@@ -9,7 +9,8 @@ This is intentionally a thin script. Heavy lifting lives in
     - fk_post.apply_fk_post           - height/origin shifts + local_body_pos
     - batch_runner.run_batch / Tee    - directory & YAML batch driver
 
-Inputs:   AMASS SMPL-X .npz/.pkl, AMASS CMU _stageii.npz, GVHMR .pt
+Inputs:   AMASS SMPL-X .npz/.pkl, AMASS CMU _stageii.npz, GVHMR .pt,
+          BVH LAFAN1 (experimental — see docs/bvh.md)
 Outputs:  pkl with the schema documented in docs/pipeline.md sec 5.7
 Robots:   booster_k1 (default), booster_t1
 Modes:    --ground_mode {none, qp, soft}, --strict_zero_pen for two-pass IK
@@ -38,6 +39,13 @@ Usage examples:
     python scripts/retarget_no_penetration.py \\
         --input motion_data/ACCAD/ \\
         --input_format smplx --ground_mode qp --strict_zero_pen --output retargeted/
+
+    # BVH LAFAN1 (experimental; arm/head joint offsets are best-effort,
+    # see docs/bvh.md for caveats)
+    python scripts/retarget_no_penetration.py \\
+        --input dance.bvh --input_format bvh_lafan1 \\
+        --robot booster_k1 --ground_mode qp --strict_zero_pen \\
+        --output retargeted/dance.pkl
 """
 
 import argparse
@@ -59,19 +67,17 @@ SMPLX_FOLDER = pathlib.Path(__file__).parent.parent / "assets" / "body_models"
 # ---------------------------------------------------------------------------
 
 def load_motion_frames(input_path: str, input_format: str, tgt_fps: int = 30):
-    """Load human motion data from either SMPL-X or GVHMR format.
+    """Load human motion from SMPL-X, GVHMR, or BVH.
 
     Returns:
         smplx_data_frames: list of per-frame dicts {body_name: (pos, quat_wxyz)}
         aligned_fps: float
         actual_human_height: float
     """
-    from general_motion_retargeting.utils.smpl import (
-        load_smplx_file, get_smplx_data_offline_fast,
-        load_gvhmr_pred_file, get_gvhmr_data_offline_fast,
-    )
-
     if input_format in ("smplx", "amass_cmu"):
+        from general_motion_retargeting.utils.smpl import (
+            load_smplx_file, get_smplx_data_offline_fast,
+        )
         smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
             input_path, str(SMPLX_FOLDER)
         )
@@ -79,16 +85,38 @@ def load_motion_frames(input_path: str, input_format: str, tgt_fps: int = 30):
             smplx_data, body_model, smplx_output, tgt_fps=tgt_fps
         )
     elif input_format == "gvhmr":
+        from general_motion_retargeting.utils.smpl import (
+            load_gvhmr_pred_file, get_gvhmr_data_offline_fast,
+        )
         smplx_data, body_model, smplx_output, actual_human_height = load_gvhmr_pred_file(
             input_path, str(SMPLX_FOLDER)
         )
         smplx_data_frames, aligned_fps = get_gvhmr_data_offline_fast(
             smplx_data, body_model, smplx_output, tgt_fps=tgt_fps
         )
+    elif input_format == "bvh_lafan1":
+        # BVH header frame-time is parsed inside read_bvh but not plumbed
+        # through Anim; LAFAN1 is natively 30 fps so this is exact for that
+        # source. See docs/bvh.md for the assumption.
+        from general_motion_retargeting.utils.lafan1 import load_bvh_file
+        smplx_data_frames, actual_human_height = load_bvh_file(
+            input_path, format="lafan1",
+        )
+        aligned_fps = float(tgt_fps)
     else:
         raise ValueError(f"Unknown input format: {input_format!r}")
 
     return smplx_data_frames, aligned_fps, actual_human_height
+
+
+# Map --input_format to the IK-config bucket. SMPL-X-based formats (AMASS,
+# AMASS CMU, GVHMR) all share the "smplx" bucket; BVH gets its own.
+SRC_HUMAN_FOR_FORMAT = {
+    "smplx": "smplx",
+    "amass_cmu": "smplx",
+    "gvhmr": "smplx",
+    "bvh_lafan1": "bvh_lafan1",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +244,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         ground_mode=args.ground_mode,
         sole_config=sole_config,
         actual_human_height=actual_human_height,
+        src_human=SRC_HUMAN_FOR_FORMAT[input_format],
         gain=args.gain,
         ground_height=args.ground_height,
         clearance=args.clearance,
@@ -351,9 +380,11 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--input_format", choices=["smplx", "gvhmr", "amass_cmu"], required=True,
+        "--input_format", choices=["smplx", "gvhmr", "amass_cmu", "bvh_lafan1"],
+        required=True,
         help="'smplx' = AMASS/OMOMO .npz/.pkl, 'gvhmr' = GVHMR .pt, "
-             "'amass_cmu' = AMASS CMU _stageii.npz with stem cleaning.",
+             "'amass_cmu' = AMASS CMU _stageii.npz with stem cleaning, "
+             "'bvh_lafan1' = LAFAN1 BVH (EXPERIMENTAL, see docs/bvh.md).",
     )
     parser.add_argument(
         "--output", type=str, default=None,
@@ -440,6 +471,14 @@ def main():
     from general_motion_retargeting.retargeting import (
         run_batch, discover_input_files, load_yaml_paths, amass_stem,
     )
+
+    if args.input_format == "bvh_lafan1":
+        print(
+            "[yellow]bvh_lafan1 is EXPERIMENTAL. Arm/head joint offsets in "
+            "bvh_lafan1_to_{k1,t1}.json are best-effort guesses derived from "
+            "the SMPL-X configs and have not been visually validated. "
+            "See docs/bvh.md.[/yellow]"
+        )
 
     # YAML batch (AMASS CMU locomotion list)
     if args.yaml:
