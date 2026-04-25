@@ -1,10 +1,10 @@
 # BVH (LAFAN1) Support — EXPERIMENTAL
 
-> **Status:** initial integration. Legs, feet, and trunk are derived from
-> existing tested BVH configs (G1, T1-29dof) and should retarget cleanly.
-> **Arm and head joint offsets are best-effort guesses** that have not been
-> visually validated. Expect twist on the shoulders / elbows / head and tune
-> per §4.
+> **Status:** initial integration. Legs, feet, trunk, and arms now retarget
+> without driving joints into limits on standard LAFAN1 walks/runs. The K1
+> arm offsets were ported from `bvh_lafan1_to_t1.json` (which has correctly
+> mirrored left/right quaternions) — see §7. **Head offsets remain a
+> best-effort guess** and may need tuning per §4.
 
 LAFAN1 BVH motions can be retargeted through the same pipeline as SMPL-X:
 
@@ -124,7 +124,52 @@ Q_bvh→k1  =  (Q_bvh→g1 ⊗ conj(Q_smplx→g1))  ⊗  Q_smplx→k1
 This gives a principled starting value per joint, replacing the current
 guesses for the five arm/head links.
 
-## 6. Files
+## 6. K1 arm-offset fix (2026-04-25)
+
+The original `bvh_lafan1_to_k1.json` reused a single quaternion
+`[-0.5, 0.5, 0.5, -0.5]` for all four arm tasks (`Left_Arm_3`,
+`Right_Arm_3`, `left_hand_link`, `right_hand_link`). On a `--ground_mode none`
+test run across LAFAN1 walk / run / multipleActions:
+
+| joint | pinning at limit (before) | pinning at limit (after) |
+|---|---|---|
+| `Left_Shoulder_Roll` | 59–74% | 0.1–1.1% |
+| `Right_Shoulder_Roll` | 93–99% | 0.0–1.8% |
+| `Left_Elbow_Yaw` | 90–99% | 0.0% |
+| `ARight_Shoulder_Pitch` | 56% (walk) | <8% |
+
+**Why a single quaternion was wrong.** K1's left and right arm bodies are
+mirror-symmetric about the sagittal plane: `Left_Arm_3 → left_hand_link`
+sits at `(0, +0.1215, 0)` (the +Y axis is "down the bone"), while
+`Right_Arm_3 → right_hand_link` sits at `(0, -0.1215, 0)` (-Y is "down the
+bone"). LAFAN1 BVH bones, in contrast, share a single axis convention:
+`LeftArm → LeftForeArm` and `RightArm → RightForeArm` both use `(33.0, 0, 0)`
+— +X down the bone for **both** sides. A constant rot_offset that maps
+BVH +X → robot +Y therefore maps BVH +X to robot +Y on the right arm too,
+which is the opposite of where the bone needs to go. The IK then drives the
+shoulder roll/pitch into its joint limits trying to recover.
+
+The SMPL-X K1 config doesn't have this problem because SMPL-X already
+mirrors its left vs right arm bone frames (so the same rot_offset works for
+both). BVH does not.
+
+**Fix.** Port the T1 BVH arm quaternions, which already encode the mirror:
+
+| task | offset |
+|---|---|
+| `Left_Arm_3`, `left_hand_link` | `[0.7071067811865476, 0, 0, -0.7071067811865476]` |
+| `Right_Arm_3`, `right_hand_link` | `[0, -0.7071067811865476, 0.7071067811865476, 0]` |
+
+`right_offset = left_offset ⊗ R_x(180°)` — the 180° about X swaps Y and Z
+to convert the left-arm body frame to the right-arm body frame. K1 and T1
+share the same arm-mirror structure, so the same pair of offsets works on
+both robots.
+
+The legs were unaffected by this bug because K1's `Left_Shank` and
+`Right_Shank` children both sit at `(-0.014, 0, -0.117)` — they are **not**
+mirrored along the bone axis, so a single rot_offset works for both legs.
+
+## 7. Files
 
 | Path | What |
 |---|---|
