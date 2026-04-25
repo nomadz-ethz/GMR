@@ -1,10 +1,15 @@
-from general_motion_retargeting import RobotMotionViewer, load_robot_motion
 import argparse
 import os
-from tqdm import tqdm
-import numpy as np
-from pathlib import Path
-from rich import print
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from general_motion_retargeting import RobotMotionViewer, load_robot_motion  # noqa: E402
+from tqdm import tqdm  # noqa: E402
+import numpy as np  # noqa: E402
+from pathlib import Path  # noqa: E402
+from rich import print  # noqa: E402
 
 paused = False
 motion_num = 0
@@ -25,7 +30,8 @@ def keyboard_callback(keycode):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--robot", type=str, default="unitree_g1")
+    parser.add_argument("--robot", type=str, default="booster_k1",
+                        choices=["booster_k1", "booster_t1"])
                         
     parser.add_argument("--robot_motion_folder", type=str, required=True)
 
