@@ -336,7 +336,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
 
     # 9. Save the pkl. Schema: see docs/pipeline.md sec 5.7.
     motion_data = {
-        "fps": aligned_fps,
+        "fps": float(aligned_fps),
         "robot": robot_type,
         "input_format": input_format,
         "source_file": os.path.abspath(input_path),
