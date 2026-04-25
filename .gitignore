@@ -107,6 +107,10 @@ motion_data/
 
 GVHMR/
 
+# Local-only working artifacts and regression baselines
+output/
+tests/baseline/
+
 batch_twist1_to_csv.py
 
 yaml_to_flat_csv.py

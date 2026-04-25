@@ -1,11 +1,17 @@
-from general_motion_retargeting import RobotMotionViewer, load_robot_motion
 import argparse
 import os
-from tqdm import tqdm
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from general_motion_retargeting import RobotMotionViewer, load_robot_motion  # noqa: E402
+from tqdm import tqdm  # noqa: E402
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--robot", type=str, default="unitree_g1")
+    parser.add_argument("--robot", type=str, default="booster_k1",
+                        choices=["booster_k1", "booster_t1"])
                         
     parser.add_argument("--robot_motion_path", type=str, required=True)
 
