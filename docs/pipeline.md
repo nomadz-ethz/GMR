@@ -584,8 +584,8 @@ After Commit B (Richer pkl schema) the output dict has the following keys:
 | `dof_pos` | `(N, J) float32` | Joint positions per frame. |
 | `local_body_pos` | `(N, B, 3) float32 \| None` | Body positions with root pinned to origin. |
 | `link_body_list` | `list[str] \| None` | Body names matching `local_body_pos`. |
-| `foot_ground_contact_flags` | `(N, 2) bool \| None` | Left / right contact (§3). |
-| `foot_contact_params` | `dict \| None` | NEW — `{"z_thresh": float, "v_thresh": float}` echoed from CLI. |
+| `foot_ground_contact_flags` | `(N, 2) bool \| None` | Left / right contact (§3). See `docs/foot_contact.md` for the consumer-facing schema and PyTorch usage examples. |
+| `foot_contact_meta` | `dict \| None` | Self-describing dict: `{"source", "joints", "columns", "z_thresh", "vel_thresh", "floor_z"}`. |
 
 Pre-existing consumers that read only the original keys continue to work
 unchanged — all new keys are additive.

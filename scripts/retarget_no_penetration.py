@@ -307,6 +307,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
 
     # 8. Foot-ground contact flags from raw SMPL-X kinematics.
     foot_ground_contact_flags = None
+    foot_contact_meta = None
     if not getattr(args, "no_foot_contact", False):
         flags, info = detect_smplx_foot_contact(
             smplx_data_frames, aligned_fps,
@@ -318,18 +319,20 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
             print(f"[yellow][Foot contact] skipped: {reason}.[/yellow]")
         else:
             foot_ground_contact_flags = flags
+            foot_contact_meta = {
+                "source": "smplx_toe_kinematics",
+                "joints": ["left_foot", "right_foot"],
+                "columns": ["left", "right"],
+                "z_thresh": float(args.foot_contact_z_thresh),
+                "vel_thresh": float(args.foot_contact_vel_thresh),
+                "floor_z": float(info["floor_z"]),
+            }
             print(
                 f"[Foot contact] L={info['l_count']}/{info['n_frames']}, "
                 f"R={info['r_count']}/{info['n_frames']} "
                 f"(floor_z={info['floor_z']:.3f} m, z<{info['z_thresh']:.3f} m, "
                 f"v<{info['v_thresh']:.3f} m/s)"
             )
-
-    foot_contact_params = (
-        None if foot_ground_contact_flags is None
-        else {"z_thresh": float(args.foot_contact_z_thresh),
-              "v_thresh": float(args.foot_contact_vel_thresh)}
-    )
 
     # 9. Save the pkl. Schema: see docs/pipeline.md sec 5.7.
     motion_data = {
@@ -347,7 +350,7 @@ def retarget_and_save(input_path: str, output_path: str, input_format: str, args
         "local_body_pos": local_body_pos,
         "link_body_list": link_body_list,
         "foot_ground_contact_flags": foot_ground_contact_flags,
-        "foot_contact_params": foot_contact_params,
+        "foot_contact_meta": foot_contact_meta,
     }
 
     out_dir = os.path.dirname(output_path)
